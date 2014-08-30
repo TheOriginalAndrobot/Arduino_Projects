@@ -80,7 +80,6 @@ void setup(){
     resetIOXP();
     ioxpStatus = inxp.begin();
     ioxpStatus &= inxp.setPolarity(0xFFFF);
-    attachInterrupt(IOXP_INT_NUM, ioxpISR, FALLING);
 
     // MySensors sketch/node init
     Serial.println( SKETCH_NAME );
@@ -89,6 +88,13 @@ void setup(){
 
     // MySesnors present devices
     presentAllDevices();
+    delay(10);
+
+    // Restore light values from the gateway
+    requestCurrentValuesFromGW();
+    
+    // Enable IOXP interrupts to allow sending events
+    attachInterrupt(IOXP_INT_NUM, ioxpISR, FALLING);
 
     // Setup done, set status light
     digitalWrite(LED_PIN, 1);
@@ -170,6 +176,30 @@ void presentAllDevices(){
     gw.present(SCENE_BASE_ID, S_SCENE_CONTROLLER);
 }
 
+// Pull gateway's current value for lights, in order to restore upon node boot.
+// Responses are handled by incommingMessage just like any other command.
+void requestCurrentValuesFromGW(){
+    int childID;
+    int index;
+
+    // SSRs
+    for (index=0; index<SSR_COUNT; index++){
+        childID = SSR_BASE_ID + index;
+        gw.request(childID, V_LIGHT);
+        // Make sure we service enough incoming messages to prevent overflow
+        delay(50);
+        gw.process();
+    }
+
+    // PWMs
+    for (index=0; index<PWM_COUNT; index++){
+        childID = PWM_BASE_ID + index;
+        gw.request(childID, V_DIMMER);
+        // Make sure we service enough incoming messages to prevent overflow
+        delay(50);
+        gw.process();
+    }
+}
 
 // IOXP interrupt handler
 void ioxpISR(){
@@ -224,7 +254,10 @@ void processIOXPInputs(){
 
 // Handle incoming MySensors messages from the gateway
 void incomingMessage(const MyMessage &message) {
-    Serial.print("Incoming Message. Type=");
+    // Debug
+    Serial.print("Incoming Message. Sensor=");
+    Serial.print(message.sensor);
+    Serial.print(" Type=");
     Serial.print(message.type);
     Serial.print(" Data=");
     Serial.println(message.data);
