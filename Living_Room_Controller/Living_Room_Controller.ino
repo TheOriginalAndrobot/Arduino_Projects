@@ -16,6 +16,7 @@
 #include <SPI.h>
 #include <Wire.h>
 #include <PCA9555.h>
+#include <ButtonTracker.h>
 
 
 #define SKETCH_NAME     "LivingRoomController"
@@ -26,8 +27,12 @@
 // Pin mapping
 //
 const int LED_PIN = 13;
+// I/O expander
 const int IOXP_RST_PIN = 48;
 const int IOXP_INT_PIN = 19;
+const int IOXP_INT_NUM = 4;     // Pin 19 is int.4 on Mega
+const int IOXP_NUM_SCENES = 8;  // # of scenes to process, starting at 1st input
+const int IOXP_SCENE_START = 1; // Starts at scene #1
 // SSR number (index) to pin (value)
 const int SSR_PINS[17] = {0,23,25,27,29,22,24,26,28,31,33,35,37,30,32,34,36};
 const int SSR_COUNT = 16;
@@ -42,7 +47,6 @@ const int SSR_BASE_ID = 1;
 const int PWM_BASE_ID = 50;
 const int SCENE_BASE_ID = 100;
 
-
 //
 // Create devices
 //
@@ -54,9 +58,14 @@ PCA9555 inxp(0x00);
 //
 MyMessage msgDimmer(0, V_DIMMER);
 MyMessage msgLight(0, V_LIGHT);
-MyMessage msgSceneOn(0, V_SCENE_ON);
-MyMessage msgSceneOff(0, V_SCENE_OFF);
+MyMessage msgSceneOn(SCENE_BASE_ID, V_SCENE_ON);
+MyMessage msgSceneOff(SCENE_BASE_ID, V_SCENE_OFF);
 
+//
+// Global vars
+//
+volatile bool ioxpNeedsReading = false;
+ButtonTracker sceneButtons[IOXP_NUM_SCENES];
 
 
 void setup(){
@@ -70,6 +79,7 @@ void setup(){
     resetIOXP();
     ioxpStatus = inxp.begin();
     ioxpStatus &= inxp.setPolarity(0xFFFF);
+    attachInterrupt(IOXP_INT_NUM, ioxpISR, FALLING);
     
     // MySensors sketch/node init
     Serial.println( SKETCH_NAME ); 
@@ -87,36 +97,17 @@ void setup(){
 // Main processing loop
 void loop() 
 {
-    bool status;
 
     // process incoming messages (like config from server)
     gw.process();
     
-    // Get any changed I/Os
-    status = inxp.read();
-    word changed = inxp.getChanged();
-    word value = inxp.getValues();
-    bool thisBit, rising;
-    
-    for (int button=0; button < 16; button++){
-    
-        thisBit = ((changed & ((word)0x0001 << button)) != 0);
-        rising = ((value & ((word)0x0001 << button)) != 0);
-        
-        if (thisBit && rising){
-        
-            Serial.print("Pressed: ");
-            Serial.println(button);
-            
-/*             if (sceneState[button] == 0){
-                gw.send(msgSceneOn.set(button));
-                sceneState[button] = 1;
-            } else {
-                gw.send(msgSceneOff.set(button));
-                sceneState[button] = 0;
-            } */
-        }
+    // Service IOXP inputs
+    if(ioxpNeedsReading){
+        ioxpNeedsReading = false;   // Set early to catch more
+        processIOXPInputs();
     }
+    
+    
 }
 
 
@@ -128,6 +119,57 @@ void incomingMessage(const MyMessage &message) {
     Serial.println(message.data);
 }
 
+
+// IOXP interrupt handler
+void ioxpISR(){
+    ioxpNeedsReading = true;
+}
+
+
+// Process any changed IOXP inputs
+void processIOXPInputs(){
+    bool status;
+    unsigned int bitNum;
+    word changes;
+    word values;
+    bool changed;
+    bool value;
+    
+    // Get any changed I/Os
+    status = inxp.read();
+    changes = inxp.getChanged();
+    values = inxp.getValues();
+
+    // Error checking
+    if (!status){
+        // Bail out if there was trouble reading the inputs
+        return;
+    }
+    
+    // Step through each scene-enabled input one by one
+    for (bitNum=0; bitNum < IOXP_NUM_SCENES; bitNum++){
+    
+        // Parse info for current input bit
+        changed = ((changes & ((word)0x0001 << bitNum)) != 0);
+        value = ((values & ((word)0x0001 << bitNum)) != 0);
+        
+        // Did this scene input change?
+        if (changed){
+        
+            // Update this button's tracker
+            sceneButtons[bitNum].update(value);
+            
+            // Short press is a "scene on" event
+            if (sceneButtons[bitNum].wasShort()){
+                gw.send(msgSceneOn.set(IOXP_SCENE_START + bitNum));
+            }
+            // Long press is a "scene off" event
+            else if (sceneButtons[bitNum].wasLong()){
+                gw.send(msgSceneOff.set(IOXP_SCENE_START + bitNum));
+            }
+        }
+    }
+}
 
 // Pin setup & init
 void setupPins(){
@@ -173,13 +215,13 @@ void presentAllDevices(){
     int childId;
     
     // SSRs (binary lights)
-    for(ii=1; ii<SSR_COUNT; ii++){
+    for(ii=1; ii<=SSR_COUNT; ii++){
         childId = SSR_BASE_ID + (ii-1);
         gw.present(childId, S_LIGHT);
     }
     
     // PWMs (dimmable lights)
-    for(ii=1; ii<PWM_COUNT; ii++){
+    for(ii=1; ii<=PWM_COUNT; ii++){
         childId = PWM_BASE_ID + (ii-1);
         gw.present(childId, S_DIMMER);
     }
