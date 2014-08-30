@@ -1,10 +1,10 @@
 /*
  * Copyright (C) 2014 Andy Swing
- * 
+ *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
  * version 2 as published by the Free Software Foundation.
- * 
+ *
  * DESCRIPTION
  * Master lighting control unit for the living room.
  *
@@ -34,11 +34,12 @@ const int IOXP_INT_NUM = 4;     // Pin 19 is int.4 on Mega
 const int IOXP_NUM_SCENES = 8;  // # of scenes to process, starting at 1st input
 const int IOXP_SCENE_START = 1; // Starts at scene #1
 // SSR number (index) to pin (value)
-const int SSR_PINS[17] = {0,23,25,27,29,22,24,26,28,31,33,35,37,30,32,34,36};
 const int SSR_COUNT = 16;
+const int SSR_PINS[SSR_COUNT] = {23,25,27,29,22,24,26,28,31,33,35,37,30,32,34,36};
 // PWM number (index) to pin (value)
-const int PWM_PINS[6] = {0,5,6,7,8,9};
 const int PWM_COUNT = 5;
+const int PWM_PINS[PWM_COUNT] = {5,6,7,8,9};
+
 
 //
 // Child ID mapping
@@ -73,130 +74,68 @@ void setup(){
 
     // Pin setup & init
     setupPins();
-    
+
     // I/O expander set up
     Wire.begin();
     resetIOXP();
     ioxpStatus = inxp.begin();
     ioxpStatus &= inxp.setPolarity(0xFFFF);
     attachInterrupt(IOXP_INT_NUM, ioxpISR, FALLING);
-    
+
     // MySensors sketch/node init
-    Serial.println( SKETCH_NAME ); 
+    Serial.println( SKETCH_NAME );
     gw.begin(incomingMessage, DEV_NODE_ID, true);
     gw.sendSketchInfo(SKETCH_NAME, SKETCH_VERSION);
-    
+
     // MySesnors present devices
     presentAllDevices();
-    
+
     // Setup done, set status light
     digitalWrite(LED_PIN, 1);
 }
 
 
 // Main processing loop
-void loop() 
+void loop()
 {
 
     // process incoming messages (like config from server)
     gw.process();
-    
+
     // Service IOXP inputs
     if(ioxpNeedsReading){
         ioxpNeedsReading = false;   // Set early to catch more
         processIOXPInputs();
     }
-    
-    
+
 }
 
-
-// Handle incoming MySensors messages from the gateway
-void incomingMessage(const MyMessage &message) {
-    Serial.print("Incoming Message. Type=");
-    Serial.print(message.type);
-    Serial.print(" Data=");
-    Serial.println(message.data);
-}
-
-
-// IOXP interrupt handler
-void ioxpISR(){
-    ioxpNeedsReading = true;
-}
-
-
-// Process any changed IOXP inputs
-void processIOXPInputs(){
-    bool status;
-    unsigned int bitNum;
-    word changes;
-    word values;
-    bool changed;
-    bool value;
-    
-    // Get any changed I/Os
-    status = inxp.read();
-    changes = inxp.getChanged();
-    values = inxp.getValues();
-
-    // Error checking
-    if (!status){
-        // Bail out if there was trouble reading the inputs
-        return;
-    }
-    
-    // Step through each scene-enabled input one by one
-    for (bitNum=0; bitNum < IOXP_NUM_SCENES; bitNum++){
-    
-        // Parse info for current input bit
-        changed = ((changes & ((word)0x0001 << bitNum)) != 0);
-        value = ((values & ((word)0x0001 << bitNum)) != 0);
-        
-        // Did this scene input change?
-        if (changed){
-        
-            // Update this button's tracker
-            sceneButtons[bitNum].update(value);
-            
-            // Short press is a "scene on" event
-            if (sceneButtons[bitNum].wasShort()){
-                gw.send(msgSceneOn.set(IOXP_SCENE_START + bitNum));
-            }
-            // Long press is a "scene off" event
-            else if (sceneButtons[bitNum].wasLong()){
-                gw.send(msgSceneOff.set(IOXP_SCENE_START + bitNum));
-            }
-        }
-    }
-}
 
 // Pin setup & init
 void setupPins(){
     int ii;
-    
-    //
+
     // Initialize outputs
-    //
+
     pinMode(LED_PIN, OUTPUT);
     digitalWrite(LED_PIN, 0);
-    
+
     pinMode(IOXP_RST_PIN, OUTPUT);
     digitalWrite(IOXP_RST_PIN, 0);
-    
-    for(ii=1; ii<SSR_COUNT; ii++){
+
+    for(ii=0; ii<SSR_COUNT; ii++){
         pinMode(SSR_PINS[ii], OUTPUT);
         digitalWrite(SSR_PINS[ii], 0);
     }
-    
-    for(ii=1; ii<PWM_COUNT; ii++){
+
+    for(ii=0; ii<PWM_COUNT; ii++){
         pinMode(PWM_PINS[ii], OUTPUT);
         digitalWrite(PWM_PINS[ii], 0);
     }
-    
-    //
+
+
     // Initialize inputs
-    //
+
     pinMode(IOXP_INT_PIN, INPUT);
 }
 
@@ -209,23 +148,126 @@ void resetIOXP(){
     delay(1);
 }
 
+
 // Present all devices to the gateway
 void presentAllDevices(){
     int ii;
     int childId;
-    
+
     // SSRs (binary lights)
     for(ii=1; ii<=SSR_COUNT; ii++){
         childId = SSR_BASE_ID + (ii-1);
         gw.present(childId, S_LIGHT);
     }
-    
+
     // PWMs (dimmable lights)
     for(ii=1; ii<=PWM_COUNT; ii++){
         childId = PWM_BASE_ID + (ii-1);
         gw.present(childId, S_DIMMER);
     }
-    
+
     // Scene controller
     gw.present(SCENE_BASE_ID, S_SCENE_CONTROLLER);
 }
+
+
+// IOXP interrupt handler
+void ioxpISR(){
+    ioxpNeedsReading = true;
+}
+
+// Process any changed IOXP inputs
+void processIOXPInputs(){
+    bool status;
+    unsigned int bitNum;
+    word changes;
+    word values;
+    bool changed;
+    bool value;
+
+    // Get any changed I/Os
+    status = inxp.read();
+    changes = inxp.getChanged();
+    values = inxp.getValues();
+
+    // Error checking
+    if (!status){
+        // Bail out if there was trouble reading the inputs
+        return;
+    }
+
+    // Step through each scene-enabled input one by one
+    for (bitNum=0; bitNum < IOXP_NUM_SCENES; bitNum++){
+
+        // Parse info for current input bit
+        changed = ((changes & ((word)0x0001 << bitNum)) != 0);
+        value = ((values & ((word)0x0001 << bitNum)) != 0);
+
+        // Did this scene input change?
+        if (changed){
+
+            // Update this button's tracker
+            sceneButtons[bitNum].update(value);
+
+            // Short press is a "scene on" event
+            if (sceneButtons[bitNum].wasShort()){
+                gw.send(msgSceneOn.set(IOXP_SCENE_START + bitNum));
+            }
+            // Long press is a "scene off" event
+            else if (sceneButtons[bitNum].wasLong()){
+                gw.send(msgSceneOff.set(IOXP_SCENE_START + bitNum));
+            }
+        }
+    }
+}
+
+
+// Handle incoming MySensors messages from the gateway
+void incomingMessage(const MyMessage &message) {
+    Serial.print("Incoming Message. Type=");
+    Serial.print(message.type);
+    Serial.print(" Data=");
+    Serial.println(message.data);
+
+    // Binary/dimmable lights
+    if (message.type == V_LIGHT || message.type == V_DIMMER) {
+        //  Retrieve the power or dim level from the incoming request message
+        int requestedLevel = atoi( message.data );
+        // Adjust incoming level if this is a V_LIGHT variable update [0 == off, 1 == on]
+        requestedLevel *= ( message.type == V_LIGHT ? 100 : 1 );
+        // Clip incoming level to valid range of 0 to 100
+        requestedLevel = requestedLevel > 100 ? 100 : requestedLevel;
+        requestedLevel = requestedLevel < 0   ? 0   : requestedLevel;
+        // Change the light's value
+        setLight(message.sensor, requestedLevel);
+    }
+}
+
+
+// Set the correct light output
+void setLight(byte childID, int level){
+    int lightIndex;
+    int pinNum;
+
+    // ID is in SSR range
+    if (childID >= SSR_BASE_ID && childID < (SSR_BASE_ID+SSR_COUNT)){
+        lightIndex = childID - SSR_BASE_ID;
+        pinNum = SSR_PINS[lightIndex];
+        digitalWrite(pinNum, (level>0)?HIGH:LOW);
+        // Inform gateway of the current SwitchPower1 value
+        gw.send(msgLight.setSensor(childID).set((level>0)?1:0));
+    }
+    // ID is in PWM range
+    else if (childID >= PWM_BASE_ID && childID < (PWM_BASE_ID+PWM_COUNT)){
+        lightIndex = childID - PWM_BASE_ID;
+        pinNum = PWM_PINS[lightIndex];
+        // TODO: replace with a nice fade effect
+        analogWrite(pinNum, (int)(level / 100. * 255));
+        // Inform gateway of the current SwitchPower1 and LoadLevelStatus value
+        gw.send(msgLight.setSensor(childID).set((level>0)?1:0));
+        gw.send(msgDimmer.setSensor(childID).set(level));
+    }
+}
+
+
+
