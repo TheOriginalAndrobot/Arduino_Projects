@@ -20,8 +20,12 @@
 
 
 #define SKETCH_NAME     "LivingRoomController"
-#define SKETCH_VERSION  "1.2"
+#define SKETCH_VERSION  "1.3"
 #define DEV_NODE_ID     200
+
+// Uncomment to pull boot up SSR values from controller
+//#define LRC__RESTORE_SSRS_FROM_GW
+
 
 //
 // Pin mapping
@@ -31,11 +35,14 @@ const int LED_PIN = 13;
 const int IOXP_RST_PIN = 48;
 const int IOXP_INT_PIN = 19;
 const int IOXP_INT_NUM = 4;     // Pin 19 is int.4 on Mega
-const int IOXP_NUM_SCENES = 8;  // # of scenes to process, starting at 1st input
-const int IOXP_SCENE_START = 1; // Starts at scene #1
+const int IOXP_NUM_INPUTS = 12;  // # of inputs to process, starting at 1st input
+const int IOXP_SCENE_HELD_OFFSET = 100; // Scene number offset for held button
+const int IOXP_SCENE_NUMBER_MAP[IOXP_NUM_INPUTS] = {1,1,2,2,3,3,4,5,6,6,7,7};
+const bool IOXP_SCENE_TYPE_MAP[IOXP_NUM_INPUTS]  = {1,0,1,0,1,0,1,1,1,0,1,0};
 // SSR number (index) to pin (value)
 const int SSR_COUNT = 16;
-const int SSR_PINS[SSR_COUNT] = {23,25,27,29,22,24,26,28,31,33,35,37,30,32,34,36};
+const int SSR_PINS[SSR_COUNT]  = {23,25,27,29,22,24,26,28,31,33,35,37,30,32,34,36};
+const bool SSR_BOOT[SSR_COUNT] = { 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
 // PWM number (index) to pin (value)
 const int PWM_COUNT = 5;
 const int PWM_PINS[PWM_COUNT] = {5,6,7,8,9};
@@ -66,7 +73,7 @@ MyMessage msgSceneOff(SCENE_BASE_ID, V_SCENE_OFF);
 // Global vars
 //
 volatile bool ioxpNeedsReading = false;
-ButtonTracker sceneButtons[IOXP_NUM_SCENES];
+ButtonTracker sceneButtons[IOXP_NUM_INPUTS];
 
 
 void setup(){
@@ -183,6 +190,7 @@ void requestCurrentValuesFromGW(){
     int index;
 
     // SSRs
+#ifdef LRC__RESTORE_SSRS_FROM_GW
     for (index=0; index<SSR_COUNT; index++){
         childID = SSR_BASE_ID + index;
         gw.request(childID, V_LIGHT);
@@ -190,6 +198,12 @@ void requestCurrentValuesFromGW(){
         delay(50);
         gw.process();
     }
+#else
+    // Set SSRs to manual boot-up value
+    for (index=0; index<SSR_COUNT; index++){
+        setLight((SSR_BASE_ID+index),SSR_BOOT[index], true);
+    }
+#endif
 
     // PWMs
     for (index=0; index<PWM_COUNT; index++){
@@ -214,6 +228,9 @@ void processIOXPInputs(){
     word values;
     bool changed;
     bool value;
+    int sceneNum;
+    bool sceneType;
+    MyMessage* msgPtr;
 
     // Get any changed I/Os
     status = inxp.read();
@@ -227,7 +244,7 @@ void processIOXPInputs(){
     }
 
     // Step through each scene-enabled input one by one
-    for (bitNum=0; bitNum < IOXP_NUM_SCENES; bitNum++){
+    for (bitNum=0; bitNum < IOXP_NUM_INPUTS; bitNum++){
 
         // Parse info for current input bit
         changed = ((changes & ((word)0x0001 << bitNum)) != 0);
@@ -238,14 +255,25 @@ void processIOXPInputs(){
 
             // Update this button's tracker
             sceneButtons[bitNum].update(value);
-
-            // Short press is a "scene on" event
-            if (sceneButtons[bitNum].wasShort()){
-                gw.send(msgSceneOn.set(IOXP_SCENE_START + bitNum));
+            
+            // Look up scene info
+            sceneNum = IOXP_SCENE_NUMBER_MAP[bitNum];
+            sceneType = IOXP_SCENE_TYPE_MAP[bitNum];
+            
+            // Decide message type
+            if (sceneType == 1){
+                msgPtr = &msgSceneOn;
+            } else {
+                msgPtr = &msgSceneOff;
             }
-            // Long press is a "scene off" event
+            
+            // Short press
+            if (sceneButtons[bitNum].wasShort()){
+                gw.send(msgPtr->set(sceneNum));
+            }
+            // Long press
             else if (sceneButtons[bitNum].wasLong()){
-                gw.send(msgSceneOff.set(IOXP_SCENE_START + bitNum));
+                gw.send(msgPtr->set(sceneNum + IOXP_SCENE_HELD_OFFSET));
             }
         }
     }
@@ -281,6 +309,9 @@ void incomingMessage(const MyMessage &message) {
 
 // Set the correct light output
 void setLight(byte childID, int level){
+    setLight(childID, level, false);
+}
+void setLight(byte childID, int level, bool updateGW){
     int lightIndex;
     int pinNum;
 
@@ -290,7 +321,7 @@ void setLight(byte childID, int level){
         pinNum = SSR_PINS[lightIndex];
         digitalWrite(pinNum, (level>0)?HIGH:LOW);
         // Inform gateway of the current SwitchPower1 value
-        //gw.send(msgLight.setSensor(childID).set((level>0)?1:0));
+        if(updateGW) gw.send(msgLight.setSensor(childID).set((level>0)?1:0));
     }
     // ID is in PWM range
     else if (childID >= PWM_BASE_ID && childID < (PWM_BASE_ID+PWM_COUNT)){
@@ -299,7 +330,7 @@ void setLight(byte childID, int level){
         // TODO: replace with a nice fade effect
         analogWrite(pinNum, (int)(level / 100. * 255));
         // Inform gateway of the current SwitchPower1 and LoadLevelStatus value
-        //gw.send(msgLight.setSensor(childID).set((level>0)?1:0));
+        if(updateGW) gw.send(msgLight.setSensor(childID).set((level>0)?1:0));
         //gw.send(msgDimmer.setSensor(childID).set(level));
     }
 }
