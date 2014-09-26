@@ -20,7 +20,7 @@
 
 
 #define SKETCH_NAME     "LivingRoomController"
-#define SKETCH_VERSION  "1.1"
+#define SKETCH_VERSION  "1.2"
 #define DEV_NODE_ID     200
 
 //
@@ -255,12 +255,14 @@ void processIOXPInputs(){
 // Handle incoming MySensors messages from the gateway
 void incomingMessage(const MyMessage &message) {
     // Debug
+    /*
     Serial.print("Incoming Message. Sensor=");
     Serial.print(message.sensor);
     Serial.print(" Type=");
     Serial.print(message.type);
     Serial.print(" Data=");
     Serial.println(message.data);
+    */
 
     // Binary/dimmable lights
     if (message.type == V_LIGHT || message.type == V_DIMMER) {
@@ -288,7 +290,7 @@ void setLight(byte childID, int level){
         pinNum = SSR_PINS[lightIndex];
         digitalWrite(pinNum, (level>0)?HIGH:LOW);
         // Inform gateway of the current SwitchPower1 value
-        gw.send(msgLight.setSensor(childID).set((level>0)?1:0));
+        //gw.send(msgLight.setSensor(childID).set((level>0)?1:0));
     }
     // ID is in PWM range
     else if (childID >= PWM_BASE_ID && childID < (PWM_BASE_ID+PWM_COUNT)){
@@ -297,8 +299,8 @@ void setLight(byte childID, int level){
         // TODO: replace with a nice fade effect
         analogWrite(pinNum, (int)(level / 100. * 255));
         // Inform gateway of the current SwitchPower1 and LoadLevelStatus value
-        gw.send(msgLight.setSensor(childID).set((level>0)?1:0));
-        gw.send(msgDimmer.setSensor(childID).set(level));
+        //gw.send(msgLight.setSensor(childID).set((level>0)?1:0));
+        //gw.send(msgDimmer.setSensor(childID).set(level));
     }
 }
 
