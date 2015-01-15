@@ -20,10 +20,10 @@
 
 
 #define SKETCH_NAME     "LivingRoomController"
-#define SKETCH_VERSION  "1.3"
+#define SKETCH_VERSION  "1.4"
 #define DEV_NODE_ID     200
 
-// Uncomment to pull boot up SSR values from controller
+// Uncomment to pull boot up SSR values from gateway controller
 //#define LRC__RESTORE_SSRS_FROM_GW
 
 
@@ -35,10 +35,10 @@ const int LED_PIN = 13;
 const int IOXP_RST_PIN = 48;
 const int IOXP_INT_PIN = 19;
 const int IOXP_INT_NUM = 4;     // Pin 19 is int.4 on Mega
-const int IOXP_NUM_INPUTS = 12;  // # of inputs to process, starting at 1st input
+const int IOXP_NUM_INPUTS = 16;  // # of inputs to process, starting at 1st input
 const int IOXP_SCENE_HELD_OFFSET = 100; // Scene number offset for held button
-const int IOXP_SCENE_NUMBER_MAP[IOXP_NUM_INPUTS] = {1,1,2,2,3,3,4,5,6,6,7,7};
-const bool IOXP_SCENE_TYPE_MAP[IOXP_NUM_INPUTS]  = {1,0,1,0,1,0,1,1,1,0,1,0};
+const int IOXP_SCENE_NUMBER_MAP[IOXP_NUM_INPUTS] = {1,1,2,2,3,3,4,5,6,6,7,7,8,8,9,9};
+const bool IOXP_SCENE_TYPE_MAP[IOXP_NUM_INPUTS]  = {1,0,1,0,1,0,1,1,1,0,1,0,1,0,1,0};
 // SSR number (index) to pin (value)
 const int SSR_COUNT = 16;
 const int SSR_PINS[SSR_COUNT]  = {23,25,27,29,22,24,26,28,31,33,35,37,30,32,34,36};
